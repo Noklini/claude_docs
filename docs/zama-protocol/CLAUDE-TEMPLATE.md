@@ -74,9 +74,11 @@ VITE_CONTRACT_ADDRESS=0x...
 ### Solidity (package.json)
 ```json
 {
+  "dependencies": {
+    "@fhevm/solidity": "^0.9.1"
+  },
   "devDependencies": {
-    "@fhevm/solidity": "^0.6.2",
-    "@fhevm/hardhat-plugin": "^0.2.0",
+    "@fhevm/hardhat-plugin": "^0.3.0-1",
     "@openzeppelin/contracts": "^5.0.0",
     "hardhat": "^2.19.0",
     "typescript": "^5.3.0"
@@ -211,7 +213,7 @@ function myFunction(
 
 ### Safe Arithmetic
 ```solidity
-import {FHESafeMath} from "@fhevm/solidity/lib/FHESafeMath.sol";
+import {FHESafeMath} from "@openzeppelin/confidential-contracts/utils/FHESafeMath.sol";
 
 (ebool success, euint64 result) = FHESafeMath.tryAdd(a, b);
 euint64 finalValue = FHE.select(success, result, fallbackValue);
