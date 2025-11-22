@@ -9,29 +9,26 @@ The Relayer SDK enables frontend applications to interact with FHEVM smart contr
 ### NPM Package (Recommended)
 
 ```bash
-npm install @zama-fhe/relayer-sdk
+npm install @zama-fhe/relayer-sdk@^0.3.0-5
 ```
 
-### ESM CDN
+### Required Vite Dependencies
 
-```html
-<script type="module">
-  import { createInstance, SepoliaConfig } from
-    'https://cdn.zama.ai/relayer-sdk/v0.x/bundle.esm.min.js';
-
-  const instance = await createInstance(SepoliaConfig);
-</script>
+```bash
+npm install -D vite-plugin-wasm vite-plugin-top-level-await vite-plugin-node-polyfills
 ```
 
-### UMD CDN (for SSR/legacy)
+### CDN (Alternative)
 
 ```html
-<script src="https://cdn.zama.ai/relayer-sdk/v0.x/bundle.umd.min.js"></script>
+<script src="https://cdn.zama.org/relayer-sdk-js/0.3.0-5/relayer-sdk-js.umd.cjs"></script>
 <script>
-  const { createInstance, SepoliaConfig } = window.fhevmjs;
+  const { initSDK, createInstance, SepoliaConfig } = window.RelayerSDK;
 
   async function init() {
-    const instance = await createInstance(SepoliaConfig);
+    await initSDK();
+    const config = { ...SepoliaConfig, network: window.ethereum };
+    const instance = await createInstance(config);
   }
 </script>
 ```
@@ -40,42 +37,53 @@ npm install @zama-fhe/relayer-sdk
 
 ## SDK Initialization
 
-The Relayer SDK requires instantiation of an `FhevmInstance` which holds all configuration and methods needed to interact with FHEVM.
+The Relayer SDK requires:
+1. **WASM initialization** via `initSDK()`
+2. **Instance creation** with network provider
 
-### Basic Setup (Sepolia)
+### Basic Setup (Sepolia) - Browser
 
 ```typescript
-import { createInstance, SepoliaConfig } from "@zama-fhe/relayer-sdk";
+// IMPORTANT: Use /web import for browser environments
+import { createInstance, SepoliaConfig, initSDK } from "@zama-fhe/relayer-sdk/web";
 
-// Create SDK instance using pre-configured Sepolia settings
-const instance = await createInstance(SepoliaConfig);
+// Step 1: Initialize WASM modules (required!)
+await initSDK();
+
+// Step 2: Create instance with network provider
+const config = {
+  ...SepoliaConfig,
+  network: window.ethereum  // Pass the wallet provider!
+};
+const instance = await createInstance(config);
 ```
 
-### Custom Configuration
+### Basic Setup (Node.js)
 
 ```typescript
-import { createInstance } from "@zama-fhe/relayer-sdk";
+// Use /node import for Node.js environments
+import { createInstance, SepoliaConfig } from "@zama-fhe/relayer-sdk/node";
 
 const instance = await createInstance({
-  // FHEVM Host Chain contracts (Sepolia)
-  aclContractAddress: "0x687820221192C5B662b25367F70076A37bc79b6c",
-  kmsContractAddress: "0x1364cBBf2cDF5032C47d8226a6f6FBD2AFCDacAC",
-  inputVerifierContractAddress: "0xbc91f3daD1A5F19F8390c400196e58073B6a0BC4",
-
-  // Gateway Chain contracts
-  verifyingContractAddressDecryption: "0xb6E160B1ff80D67Bfe90A85eE06Ce0A2613607D1",
-  verifyingContractAddressInputVerification: "0x7048C39f048125eDa9d678AEbaDfB22F7900a29F",
-
-  // Chain IDs
-  chainId: 11155111,        // FHEVM Host chain (Sepolia)
-  gatewayChainId: 55815,    // Gateway chain
-
-  // Optional: RPC provider (URL string or provider object)
-  network: "https://eth-sepolia.public.blastapi.io",
-
-  // Relayer URL
-  relayerUrl: "https://relayer.testnet.zama.cloud",
+  ...SepoliaConfig,
+  network: "https://ethereum-sepolia-rpc.publicnode.com"
 });
+```
+
+### SepoliaConfig Values (v0.3.0-5)
+
+```typescript
+const SepoliaConfig = {
+  aclContractAddress: '0xf0Ffdc93b7E186bC2f8CB3dAA75D86d1930A433D',
+  kmsContractAddress: '0xbE0E383937d564D7FF0BC3b46c51f0bF8d5C311A',
+  inputVerifierContractAddress: '0xBBC1fFCdc7C316aAAd72E807D9b0272BE8F84DA0',
+  verifyingContractAddressDecryption: '0x5D8BD78e2ea6bbE41f26dFe9fdaEAa349e077478',
+  verifyingContractAddressInputVerification: '0x483b9dE06E4E4C7D35CCf5837A1668487406D955',
+  chainId: 11155111,           // Ethereum Sepolia
+  gatewayChainId: 10901,       // Zama Gateway
+  network: 'https://ethereum-sepolia-rpc.publicnode.com',
+  relayerUrl: 'https://relayer.testnet.zama.org',
+};
 ```
 
 ### Configuration Parameters
@@ -315,80 +323,217 @@ const values = await instance.publicDecrypt(handles);
 
 ## Web Application Integration
 
-### React Example
+### Vite Configuration (Required)
 
 ```typescript
-import { useState, useEffect } from "react";
-import { createInstance, SepoliaConfig } from "@zama-fhe/relayer-sdk";
+// vite.config.ts
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import { nodePolyfills } from "vite-plugin-node-polyfills";
+import wasm from "vite-plugin-wasm";
+import topLevelAwait from "vite-plugin-top-level-await";
+
+export default defineConfig({
+  plugins: [
+    react(),
+    wasm(),
+    topLevelAwait(),
+    nodePolyfills({
+      include: ["buffer", "crypto", "stream", "util", "events"],
+      globals: { Buffer: true, global: true, process: true },
+    }),
+  ],
+  optimizeDeps: {
+    include: ["keccak", "ethers", "fetch-retry"],
+    exclude: ["@zama-fhe/relayer-sdk"],
+    esbuildOptions: { target: "esnext" },
+  },
+  assetsInclude: ["**/*.wasm"],
+  server: {
+    headers: {
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Embedder-Policy": "require-corp",
+    },
+    fs: { allow: [".."] },
+  },
+  build: { target: "esnext" },
+});
+```
+
+### React Modular Hooks Pattern (Recommended)
+
+#### Core FHEVM Module
+
+```typescript
+// src/core/fhevm.ts
+import { createInstance, SepoliaConfig, initSDK } from "@zama-fhe/relayer-sdk/web";
+import type { FhevmInstance } from "@zama-fhe/relayer-sdk/web";
+
+let fheInstance: FhevmInstance | null = null;
+
+export async function initializeFheInstance(): Promise<FhevmInstance> {
+  if (fheInstance) return fheInstance;
+
+  if (!window.ethereum) {
+    throw new Error("Ethereum provider not found");
+  }
+
+  await initSDK();
+  const config = { ...SepoliaConfig, network: window.ethereum };
+  fheInstance = await createInstance(config);
+  return fheInstance;
+}
+
+export function getFheInstance(): FhevmInstance | null {
+  return fheInstance;
+}
+```
+
+#### Wallet Hook
+
+```typescript
+// src/hooks/useWallet.ts
+import { useState, useCallback } from "react";
 import { ethers } from "ethers";
 
-function useConfidentialToken(contractAddress: string) {
-  const [instance, setInstance] = useState(null);
-  const [balance, setBalance] = useState<bigint | null>(null);
+const SEPOLIA_CHAIN_ID = 11155111;
+const SEPOLIA_CHAIN_ID_HEX = "0xaa36a7";
 
-  useEffect(() => {
-    async function init() {
-      const inst = await createInstance(SepoliaConfig);
-      setInstance(inst);
+export function useWallet() {
+  const [address, setAddress] = useState("");
+  const [signer, setSigner] = useState<ethers.Signer | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
+
+  const connect = useCallback(async () => {
+    if (!window.ethereum) throw new Error("MetaMask not found");
+
+    await window.ethereum.request({ method: "eth_requestAccounts" });
+    const chainIdHex = await window.ethereum.request({ method: "eth_chainId" });
+    const chainId = parseInt(chainIdHex as string, 16);
+
+    // Auto-switch to Sepolia if needed
+    if (chainId !== SEPOLIA_CHAIN_ID) {
+      await window.ethereum.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: SEPOLIA_CHAIN_ID_HEX }],
+      });
     }
-    init();
+
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    const signer = await provider.getSigner();
+    setAddress(await signer.getAddress());
+    setSigner(signer);
+    setIsConnected(true);
   }, []);
 
-  const transfer = async (to: string, amount: bigint) => {
-    if (!instance) return;
+  return { address, signer, isConnected, connect };
+}
+```
 
-    const provider = new ethers.BrowserProvider(window.ethereum);
-    const signer = await provider.getSigner();
-    const userAddress = await signer.getAddress();
+#### FHEVM Hook
 
-    // Create encrypted input
-    const input = instance.createEncryptedInput(contractAddress, userAddress);
-    input.add64(amount);
-    const encrypted = await input.encrypt();
+```typescript
+// src/hooks/useFhevm.ts
+import { useState, useCallback } from "react";
+import { initializeFheInstance, getFheInstance } from "../core/fhevm";
 
-    // Execute transfer
-    const contract = new ethers.Contract(contractAddress, ABI, signer);
-    const tx = await contract.confidentialTransfer(
-      to,
-      encrypted.handles[0],
-      encrypted.inputProof
-    );
-    await tx.wait();
+export type FhevmStatus = "idle" | "loading" | "ready" | "error";
+
+export function useFhevm() {
+  const [status, setStatus] = useState<FhevmStatus>(
+    getFheInstance() ? "ready" : "idle"
+  );
+  const [error, setError] = useState<string | null>(null);
+
+  const initialize = useCallback(async () => {
+    if (status === "loading" || status === "ready") return;
+
+    setStatus("loading");
+    try {
+      await initializeFheInstance();
+      setStatus("ready");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setStatus("error");
+    }
+  }, [status]);
+
+  return { status, error, initialize, isInitialized: status === "ready" };
+}
+```
+
+#### Encrypt Hook
+
+```typescript
+// src/hooks/useEncrypt.ts
+import { useState, useCallback } from "react";
+import { getFheInstance } from "../core/fhevm";
+
+export function useEncrypt() {
+  const [isEncrypting, setIsEncrypting] = useState(false);
+
+  const encrypt256 = useCallback(async (
+    contractAddress: string,
+    userAddress: string,
+    value: bigint
+  ) => {
+    const instance = getFheInstance();
+    if (!instance) throw new Error("FHEVM not initialized");
+
+    setIsEncrypting(true);
+    try {
+      const input = instance.createEncryptedInput(contractAddress, userAddress);
+      input.add256(value);
+      return await input.encrypt();
+    } finally {
+      setIsEncrypting(false);
+    }
+  }, []);
+
+  return { encrypt256, isEncrypting };
+}
+```
+
+#### Usage in App
+
+```typescript
+// src/App.tsx
+import { useEffect } from "react";
+import { useWallet } from "./hooks/useWallet";
+import { useFhevm } from "./hooks/useFhevm";
+import { useEncrypt } from "./hooks/useEncrypt";
+
+function App() {
+  const { address, isConnected, connect } = useWallet();
+  const { status, initialize, isInitialized } = useFhevm();
+  const { encrypt256, isEncrypting } = useEncrypt();
+
+  // Initialize FHEVM after wallet connects
+  useEffect(() => {
+    if (isConnected && status === "idle") {
+      initialize();
+    }
+  }, [isConnected, status, initialize]);
+
+  const handleSend = async () => {
+    if (!isInitialized) return;
+    const encrypted = await encrypt256(CONTRACT_ADDRESS, address, BigInt(100));
+    // Use encrypted.handles[0] and encrypted.inputProof in contract call
   };
 
-  const refreshBalance = async () => {
-    if (!instance) return;
-
-    const provider = new ethers.BrowserProvider(window.ethereum);
-    const signer = await provider.getSigner();
-    const userAddress = await signer.getAddress();
-
-    const contract = new ethers.Contract(contractAddress, ABI, signer);
-    const encryptedBalance = await contract.confidentialBalanceOf(userAddress);
-
-    // Decrypt balance
-    const keypair = instance.generateKeyPair();
-    const eip712Message = instance.createEIP712Message(
-      encryptedBalance,
-      keypair.publicKey
-    );
-
-    const signature = await signer.signTypedData(
-      eip712Message.domain,
-      eip712Message.types,
-      eip712Message.message
-    );
-
-    const decrypted = await instance.userDecrypt(
-      keypair,
-      signature,
-      encryptedBalance
-    );
-
-    setBalance(decrypted);
-  };
-
-  return { balance, transfer, refreshBalance };
+  return (
+    <div>
+      {!isConnected ? (
+        <button onClick={connect}>Connect Wallet</button>
+      ) : (
+        <div>
+          <p>Connected: {address}</p>
+          <p>FHEVM: {status}</p>
+          {isInitialized && <button onClick={handleSend}>Send</button>}
+        </div>
+      )}
+    </div>
+  );
 }
 ```
 
@@ -492,3 +637,65 @@ try {
 | `add256(value)` | `euint256` | Add encrypted uint256 |
 | `addAddress(value)` | `eaddress` | Add encrypted address |
 | `encrypt()` | - | Encrypt all values and return handles + proof |
+
+---
+
+## Troubleshooting
+
+### Common Errors
+
+#### `fetch-retry` export error
+```
+The requested module 'fetch-retry' does not provide an export named 'default'
+```
+**Solution**: Add `fetch-retry` to `optimizeDeps.include` in vite.config.ts
+
+#### WASM loading error
+```
+WebAssembly.instantiate(): expected magic word 00 61 73 6d, found 3c 21 44 4f
+```
+**Solution**:
+1. Add `assetsInclude: ["**/*.wasm"]` to vite.config.ts
+2. Add `@zama-fhe/relayer-sdk` to `optimizeDeps.exclude`
+3. Clear Vite cache: `rm -rf node_modules/.vite`
+
+#### "Please switch to Sepolia testnet"
+**Cause**: Wallet is on wrong network (e.g., Mainnet instead of Sepolia)
+**Solution**: Implement auto-switch using `wallet_switchEthereumChain`:
+```typescript
+await window.ethereum.request({
+  method: "wallet_switchEthereumChain",
+  params: [{ chainId: "0xaa36a7" }],  // Sepolia
+});
+```
+
+#### FHEVM not initialized
+**Cause**: SDK initialization happens before wallet connection
+**Solution**: Initialize FHEVM only after wallet connects:
+```typescript
+useEffect(() => {
+  if (isConnected && fhevmStatus === "idle") {
+    initializeFhevm();
+  }
+}, [isConnected, fhevmStatus]);
+```
+
+#### Cross-Origin headers error
+**Solution**: Add required headers to vite.config.ts:
+```typescript
+server: {
+  headers: {
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Embedder-Policy": "require-corp",
+  },
+}
+```
+
+### Best Practices
+
+1. **Always import from `/web` or `/node`** - Not from the package root
+2. **Call `initSDK()` before `createInstance()`** - WASM must initialize first
+3. **Pass `window.ethereum` as network** - Required for proper chain communication
+4. **Initialize FHEVM after wallet connects** - Never before
+5. **Use modular hooks** - Separate concerns for maintainability
+6. **Implement chain auto-switching** - Better UX for users on wrong network
